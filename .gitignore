@@ -1,0 +1,27 @@
+# Ignore everything in ~/.claude by default; share only the allowlisted global config.
+# Never tracked: .credentials.json, projects/ (transcripts + per-project memory), sessions,
+# history, caches, backups, plugins, policy/remote-settings.
+/*
+!/.gitignore
+!/.gitattributes
+!/README.md
+!/install.sh
+!/CLAUDE.md
+!/settings.json
+!/hooks/
+!/commands/
+!/skills/
+
+# claude.ai-managed skill folders
+/skills/.trash/
+/skills/synced/
+
+# safety net inside allowlisted folders
+.credentials.json
+.env
+.env.*
+*.env
+settings.local.json
+__pycache__/
+*.pyc
+node_modules/

@@ -1,0 +1,65 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./secrets/**)",
+      "Read(./credentials/**)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Edit(./secrets/**)",
+      "Edit(./credentials/**)"
+    ],
+    "ask": [
+      "Bash(rm:*)",
+      "Bash(del:*)",
+      "Bash(Remove-Item:*)"
+    ],
+    "defaultMode": "default"
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/secret-scan.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/config-protection.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/block-no-verify.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/precompact-carryover.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "medium"
+    }
+  }
+}

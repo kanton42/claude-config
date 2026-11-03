@@ -1,0 +1,2 @@
+# Hook scripts run under bash on Windows and Linux: keep LF line endings.
+*.sh text eol=lf
