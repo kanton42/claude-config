@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# block-no-verify (PreToolUse/Bash): if a git command tries to skip hooks via --no-verify, ask to confirm.
+# block-no-verify (PreToolUse/Bash|PowerShell): if a git command tries to skip hooks via --no-verify, ask to confirm.
 # Enforces the pre-commit gate (lint+types+tests before commit) mechanically. Adapted from ECC (MIT).
 input=$(cat)
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)

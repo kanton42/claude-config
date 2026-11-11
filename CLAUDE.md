@@ -87,4 +87,3 @@ Load the **`working-with-claude`** skill for the full playbook; the always-on ru
 - Use Ruff for formatting and linting, and pytest for testing where appropriate.
 - Keep reusable logic in Python modules rather than duplicating it across notebooks.
 - Preserve raw data and avoid silently modifying source datasets.
-

@@ -1,17 +1,37 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "PYTHONIOENCODING": "utf-8"
+  },
   "permissions": {
+    "allow": [
+      "Write",
+      "Edit",
+      "Read",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "Agent",
+      "Skill",
+      "TodoWrite",
+      "ToolSearch",
+      "Bash",
+      "PowerShell"
+    ],
     "deny": [
       "Read(./secrets/**)",
       "Read(./credentials/**)",
       "Read(~/.ssh/**)",
-      "Read(~/.aws/**)",
       "Edit(./secrets/**)",
       "Edit(./credentials/**)"
     ],
     "ask": [
       "Bash(rm:*)",
-      "Bash(del:*)",
-      "Bash(Remove-Item:*)"
+      "PowerShell(del:*)",
+      "PowerShell(rm:*)",
+      "PowerShell(Remove-Item:*)",
+      "Bash(git reset --hard:*)"
     ],
     "defaultMode": "default"
   },
@@ -37,11 +57,15 @@
         ]
       },
       {
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
             "command": "bash ~/.claude/hooks/block-no-verify.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/block-secret-read.sh"
           }
         ]
       }
@@ -59,7 +83,8 @@
   },
   "modelSettings": {
     "claude-opus-5-5": {
-      "effortLevel": "medium"
+      "effortLevel": "high"
     }
-  }
+  },
+  "agentPushNotifEnabled": true
 }
