@@ -27,9 +27,7 @@
       "Edit(./credentials/**)"
     ],
     "ask": [
-      "Bash(rm:*)",
       "PowerShell(del:*)",
-      "PowerShell(rm:*)",
       "PowerShell(Remove-Item:*)",
       "Bash(git reset --hard:*)"
     ],
@@ -68,6 +66,15 @@
             "command": "bash ~/.claude/hooks/block-secret-read.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python ~/.claude/hooks/rm_guard.py"
+          }
+        ]
       }
     ],
     "PreCompact": [
@@ -83,7 +90,7 @@
   },
   "modelSettings": {
     "claude-opus-5-5": {
-      "effortLevel": "high"
+      "effortLevel": "medium"
     }
   },
   "agentPushNotifEnabled": true

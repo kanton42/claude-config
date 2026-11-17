@@ -21,11 +21,11 @@
 - Don't rely on `conda activate`. Use `conda run -n <env> python ...` / `conda run -n <env> pytest`.
 - Installing packages: default to `conda install -n <env> -c conda-forge ...`; fall back to
   `conda run -n <env> python -m pip install ...` only if the package isn't on conda-forge.
-  Print a warning about the VPN if an unexpected conda install error occurrs instead of switching to pip directly.
+  <!-- Print a warning about the VPN if an unexpected conda install error occurrs instead of switching to pip directly. -->
   Never install into `base`. Update `environment.yml` (conda deps, or under `pip:`) when adding dependencies.
 - Remote: Azure ML (SDK v2, `azure-ai-ml`). Compute is Linux, so job scripts and YAML use Linux conventions.
   Job environments for projects intended to use on Azure are supposed to be defined in an appropriate <path/to/azureml/env.yml>, which should be usable on Azure ML.
-- Data is accessed via Azure ML datastores/data assets or pd.read_<fileformat>(file); never commit data or put credentials in code.
+- Data is accessed mainly by pd.read_<fileformat>(file); never commit data or put credentials in code.
 
 
 ## At the start of every non-trivial prompt
@@ -72,7 +72,7 @@ Load the **`working-with-claude`** skill for the full playbook; the always-on ru
 
 ## Safety
 - Never paste secret values in chat (the `secret-scan` hook warns if you do). Use env files.
-- Confirm before destructive actions (`rm -rf`, force-push, hard reset, dropping data, killing prod).
+<!-- - Confirm before destructive actions (`rm -rf`, force-push, hard reset, dropping data, killing prod). -->
 - Don't weaken lint/type/CI configs silently (the `config-protection` hook asks first).
 - Work only within the currently opened project directory (and subdirectories of it).
 - Do not access unrelated projects, personal documents, or system directories.
