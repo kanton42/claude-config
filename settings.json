@@ -27,8 +27,6 @@
       "Edit(./credentials/**)"
     ],
     "ask": [
-      "PowerShell(del:*)",
-      "PowerShell(Remove-Item:*)",
       "Bash(git reset --hard:*)"
     ],
     "defaultMode": "default"
@@ -90,7 +88,7 @@
   },
   "modelSettings": {
     "claude-opus-5-5": {
-      "effortLevel": "high"
+      "effortLevel": "xhigh"
     }
   },
   "agentPushNotifEnabled": true

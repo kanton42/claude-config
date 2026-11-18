@@ -8,7 +8,7 @@ for py in "$HOME/miniconda3/python.exe" "$HOME/miniconda3/bin/python" python3 py
     exec "$py" "$here/rm_guard.py"
   fi
 done
-if grep -Eq '(^|[^[:alnum:]_-])rm([^[:alnum:]_-]|$)'; then
+if grep -Eiq '(^|[^[:alnum:]_-])(rm|rmdir|unlink|remove-item|ri|rd|del|erase)([^[:alnum:]_-]|$)'; then
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"rm_guard: no Python found"}}'
 fi
 exit 0

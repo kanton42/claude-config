@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""PreToolUse guard for `rm` in Bash/PowerShell.
+"""PreToolUse guard for delete commands in Bash/PowerShell.
 
-The command is split at unquoted ; & && | || and newlines, and each `rm`
+Covers rm, rmdir, unlink (Bash) and Remove-Item with its aliases
+rm, ri, rd, rmdir, del, erase (PowerShell).
+
+The command is split at unquoted ; & && | || and newlines, and each delete
 segment is judged on its own targets (tracking `cd` between segments).
 
-- Every rm target resolves strictly inside the project or a temp dir
+- Every target resolves strictly inside the project or a temp dir
   ($TMPDIR/$TEMP/$TMP, system temp, Claude scratchpad)          -> allow
 - Any target outside, unresolvable variable, subshell, command
-  substitution, xargs/-exec rm, or anything unparseable          -> ask
-- No rm at all                                                   -> no opinion
+  substitution, piped/xargs/find-fed delete, no explicit target,
+  or anything unparseable                                        -> ask
+- No delete command at all                                       -> no opinion
 """
 
 import json
@@ -26,11 +30,14 @@ PS_PATH_FLAG = re.compile(r"^-(?:path|literalpath|pspath|lp):(.+)$", re.IGNORECA
 REDIRECT = re.compile(r"^\d*(?:>>?|<|&>)")
 CD_CMDS = {"cd", "chdir", "pushd", "set-location", "sl"}
 WRAPPERS = {"sudo", "command", "env", "nohup", "time", "exec"}
+DELETE_CMDS = {"rm", "rmdir", "unlink", "remove-item", "ri", "rd", "del", "erase"}
+DELETE_WORD = re.compile(
+    r"\b(?:" + "|".join(sorted(DELETE_CMDS, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
 # Segments that have their own `ask` rules in settings.json; never emit
 # `allow` for a command containing them, so those rules still apply.
-SENSITIVE = re.compile(
-    r"^(?:git\s+reset\s+--hard|del|erase|remove-item|ri|rd|rmdir)\b", re.IGNORECASE
-)
+SENSITIVE = re.compile(r"^git\s+reset\s+--hard\b", re.IGNORECASE)
 TEMP_VARS = ("TMPDIR", "TEMP", "TMP")
 
 
@@ -136,16 +143,16 @@ def tokenize(seg):
     return out
 
 
-def rm_targets(toks):
-    """Return rm target list, or None if the segment isn't an rm."""
+def rm_targets(toks, shell):
+    """Return delete-target list, or None if the segment isn't a delete."""
     while toks and toks[0].lower() in WRAPPERS:
         toks = toks[1:]
     if not toks:
         return None
     lowered = [t.lower() for t in toks]
-    if toks[0].lower() != "rm":
-        if "rm" in lowered and lowered[0] in {"xargs", "find"}:
-            raise Ask("rm fed by xargs/find")
+    if lowered[0] not in DELETE_CMDS:
+        if lowered[0] in {"xargs", "find"} and DELETE_CMDS.intersection(lowered):
+            raise Ask(f"delete fed by {lowered[0]}")
         return None
     targets, opts_done = [], False
     for t in toks[1:]:
@@ -158,6 +165,12 @@ def rm_targets(toks):
                 targets.append(m.group(1))
             continue
         targets.append(t)
+    if shell == "PowerShell":
+        # Remove-Item -Path a,b  /  "a","b"
+        targets = [p.strip("\"' ") for t in targets for p in t.split(",")]
+        targets = [t for t in targets if t]
+    if not targets:
+        raise Ask(f"{toks[0]} without explicit target (piped input?)")
     return targets
 
 
@@ -174,7 +187,7 @@ def main():
     data = json.load(sys.stdin)
     shell = data.get("tool_name", "Bash")
     cmd = data.get("tool_input", {}).get("command", "")
-    if not re.search(r"\brm\b", cmd):
+    if not DELETE_WORD.search(cmd):
         sys.exit(0)
 
     cwd = resolve(to_native(data.get("cwd") or os.getcwd()), "/")
@@ -198,7 +211,7 @@ def main():
                 continue
             if toks[0].lower() == "popd":
                 raise Ask("popd: unknown directory")
-            targets = rm_targets(toks)
+            targets = rm_targets(toks, shell)
             if targets is None:
                 continue
             saw_rm = True
