@@ -94,6 +94,54 @@ def expand(token, shell):
     return token
 
 
+HEREDOC = re.compile(r"<<(-?)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
+
+
+def strip_heredocs(cmd):
+    """Blank heredoc bodies (e.g. commit messages): they are data, not code.
+
+    Approximation: an unquoted-delimiter body could still run $(...); that
+    exotic case is accepted.
+    """
+    out, pending = [], []
+    for line in cmd.split("\n"):
+        if pending:
+            delim, dash = pending[0]
+            check = line.lstrip("\t") if dash else line
+            if check.rstrip("\r") == delim:
+                pending.pop(0)
+            out.append("")
+            continue
+        pending.extend((m.group(3), bool(m.group(1))) for m in HEREDOC.finditer(line))
+        out.append(line)
+    return "\n".join(out)
+
+
+def blank_quotes(cmd, quotes, shell):
+    """Replace the contents of the given quote types with spaces."""
+    out, q, i = [], None, 0
+    bash = shell != "PowerShell"
+    while i < len(cmd):
+        ch = cmd[i]
+        if bash and ch == "\\" and q != "'" and i + 1 < len(cmd):
+            pair = cmd[i : i + 2]
+            out.append("  " if q and q in quotes else pair)
+            i += 2
+            continue
+        if q:
+            if ch == q:
+                q = None
+                out.append(ch)
+            else:
+                out.append(" " if q in quotes else ch)
+        else:
+            if ch in "'\"":
+                q = ch
+            out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def split_segments(cmd):
     """Split at unquoted ; & | and newlines (keeping 2>&1 / &> intact)."""
     segs, cur, quote = [], [], None
@@ -186,8 +234,13 @@ def safe_roots(project):
 def main():
     data = json.load(sys.stdin)
     shell = data.get("tool_name", "Bash")
-    cmd = data.get("tool_input", {}).get("command", "")
-    if not DELETE_WORD.search(cmd):
+    cmd = strip_heredocs(data.get("tool_input", {}).get("command", ""))
+    # `live`: single-quoted text removed (literal in Bash and PowerShell);
+    # double-quoted text stays because $(...) still runs inside it.
+    # `bare`: all quoted text removed, for parens that only matter unquoted.
+    live = blank_quotes(cmd, "'", shell)
+    bare = blank_quotes(cmd, "'\"", shell)
+    if not DELETE_WORD.search(live):
         sys.exit(0)
 
     cwd = resolve(to_native(data.get("cwd") or os.getcwd()), "/")
@@ -195,7 +248,8 @@ def main():
     roots = safe_roots(project)
 
     try:
-        if "`" in cmd or "$(" in cmd or re.search(r"[()]", cmd):
+        backtick_subst = shell != "PowerShell" and "`" in live
+        if backtick_subst or "$(" in live or re.search(r"[()]", bare):
             raise Ask("subshell or command substitution")
         segs = split_segments(cmd)
         saw_rm = sensitive = False
