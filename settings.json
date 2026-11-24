@@ -102,5 +102,6 @@
       "effortLevel": "high"
     }
   },
-  "agentPushNotifEnabled": true
+  "agentPushNotifEnabled": true,
+  "inputNeededNotifEnabled": true
 }
