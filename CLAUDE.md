@@ -35,6 +35,10 @@
    thoroughness / cost), done-criteria.** Recommend a default per question so it's a confirmation, not a
    blank. (Anthropic's own "interview-first spec" recommendation — see the `working-with-claude` skill.)
    - Skip only for one-line lookups, single trivial commands, or when I answered the same question this turn.
+   - Unanswered questions time out after 10 min (`askUserQuestionTimeout`). If a question comes back
+     timed out / unanswered, I'm away: take the **recommended** option for each question, continue
+     without asking again, and end the task with a short "Auto-chosen answers" list (question → choice)
+     so I can review or revert them.
 2. **Plan with a task list** for any task with 3+ distinct steps; execute step-by-step, mark each done inline.
 3. **Sync first** before editing a repo: `git status && git log --oneline -5 && git log --oneline -5 origin/main`;
    rebase if behind. (Repos with auto-writers drift constantly.)
