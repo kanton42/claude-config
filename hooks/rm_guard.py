@@ -74,24 +74,75 @@ def resolve(path, base):
     return os.path.normcase(os.path.realpath(os.path.join(base, path)))
 
 
-def env_lookup(name):
-    val = os.environ.get(name)
-    if not val and name.upper() in TEMP_VARS:
+PS_LOCAL_VAR = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
+BASH_ASSIGN = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+
+
+def lookup(name, assigned, use_env=True):
+    """Variable assigned earlier in this command, else (optionally) env."""
+    if name in assigned:
+        if assigned[name] is None:
+            raise Ask(f"variable ${name} has an unresolvable value")
+        return assigned[name]
+    val = os.environ.get(name) if use_env else None
+    if not val and use_env and name.upper() in TEMP_VARS:
         val = tempfile.gettempdir()
     if not val:
         raise Ask(f"variable ${name} is not set")
     return val
 
 
-def expand(token, shell):
-    """Expand plain env vars; anything else with `$` is unresolvable -> ask."""
+def expand(token, shell, v):
+    """Expand plain variables; anything else with `$` is unresolvable -> ask.
+
+    `v` holds variables assigned earlier in the same command:
+    v["env"] for Bash vars / PowerShell $env:, v["ps"] for PowerShell $vars.
+    """
     if shell == "PowerShell":
-        token = PS_ENV_VAR.sub(lambda m: env_lookup(m.group(1)), token)
+        token = PS_ENV_VAR.sub(lambda m: lookup(m.group(1), v["env"]), token)
+        token = PS_LOCAL_VAR.sub(lambda m: lookup(m.group(1), v["ps"], False), token)
     else:
-        token = BASH_VAR.sub(lambda m: env_lookup(m.group(1) or m.group(2)), token)
+        token = BASH_VAR.sub(lambda m: lookup(m.group(1) or m.group(2), v["env"]), token)
     if "$" in token:
         raise Ask(f"cannot resolve {token!r}")
     return token
+
+
+def record_assignment(toks, shell, v):
+    """Remember `S=...` / `export S=...` (Bash) or `$S = '...'` (PowerShell).
+
+    Returns True if the segment was a pure assignment.
+    """
+    def value(raw):
+        try:
+            return expand(raw.strip("\"'"), shell, v)
+        except Ask:
+            return None  # known name, unknown value -> later use asks
+
+    if shell == "PowerShell":
+        if len(toks) >= 2 and toks[0].startswith("$") and toks[1] == "=":
+            name = toks[0][1:]
+            val = value(toks[2]) if len(toks) == 3 else None
+            if name.lower().startswith("env:"):
+                v["env"][name[4:]] = val
+            else:
+                v["ps"][name] = val
+            return True
+        return False
+    body = toks[1:] if toks[0] == "export" else toks
+    matches = [BASH_ASSIGN.match(t) for t in body]
+    if not body or not all(matches):
+        return False
+    for m in matches:
+        v["env"][m.group(1)] = value(m.group(2))
+    return True
+
+
+def is_absolute(path):
+    path = to_native(os.path.expanduser(path))
+    if IS_WIN:
+        return bool(os.path.splitdrive(path)[0]) and os.path.isabs(path)
+    return os.path.isabs(path)
 
 
 HEREDOC = re.compile(r"<<(-?)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
@@ -253,18 +304,31 @@ def main():
             raise Ask("subshell or command substitution")
         segs = split_segments(cmd)
         saw_rm = sensitive = False
+        assigned = {"env": {}, "ps": {}}
         for seg in segs:
             if SENSITIVE.match(seg):
                 sensitive = True
             toks = tokenize(seg)
             if not toks:
                 continue
+            if record_assignment(toks, shell, assigned):
+                continue
             if toks[0].lower() in CD_CMDS:
                 args = [t for t in toks[1:] if not t.startswith("-")]
-                cwd = resolve(expand(args[0], shell), cwd) if args else resolve("~", cwd)
+                if toks[1:] == ["-"]:
+                    cwd = None  # previous dir: unknown
+                elif not args:
+                    cwd = resolve("~", "/")
+                else:
+                    try:
+                        target = expand(args[0], shell, assigned)
+                        cwd = resolve(target, cwd) if cwd or is_absolute(target) else None
+                    except Ask:
+                        cwd = None  # only matters for later relative targets
                 continue
             if toks[0].lower() == "popd":
-                raise Ask("popd: unknown directory")
+                cwd = None
+                continue
             targets = rm_targets(toks, shell)
             if targets is None:
                 continue
@@ -272,7 +336,10 @@ def main():
             for raw in targets:
                 if raw.endswith("\\") and shell != "PowerShell":
                     raise Ask(f"ambiguous path {raw!r}")
-                full = resolve(expand(raw, shell), cwd)
+                path = expand(raw, shell, assigned)
+                if cwd is None and not is_absolute(path):
+                    raise Ask(f"{raw}: working directory unknown after cd")
+                full = resolve(path, cwd or "/")
                 if not any(full.startswith(r + os.sep) for r in roots):
                     raise Ask(f"{raw} is outside the project and temp dirs")
     except Ask as e:
