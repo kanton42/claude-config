@@ -10,12 +10,22 @@ dest="$HOME/.claude"
 mkdir -p "$dest"
 cd "$dest"
 
+# settings.json: ignore effort-level clicks (see .gitattributes). Lives in
+# .git/config, which is not versioned, so (re)apply it on every install.
+setup_filters() {
+  git config filter.effortlevel.clean \
+    'sed -E "s/(\"effortLevel\"[[:space:]]*:[[:space:]]*)\"[^\"]*\"/\1\"high\"/"'
+  git config filter.effortlevel.smudge cat
+}
+
 if [ -d .git ]; then
+  setup_filters
   git pull --ff-only
   exit 0
 fi
 
 git init -q -b main
+setup_filters
 git remote add origin "$repo"
 git fetch -q origin main
 

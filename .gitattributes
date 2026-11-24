@@ -1,2 +1,8 @@
 # Hook scripts run under bash on Windows and Linux: keep LF line endings.
 *.sh text eol=lf
+
+# Effort clicks in Claude Code rewrite "effortLevel" in settings.json. The
+# effortlevel clean filter (configured by install.sh) normalizes it to "high"
+# when git reads the file, so those clicks never show up as changes; all
+# other settings.json edits are tracked as usual.
+settings.json filter=effortlevel
