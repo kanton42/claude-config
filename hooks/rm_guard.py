@@ -4,15 +4,20 @@
 Covers rm, rmdir, unlink (Bash) and Remove-Item with its aliases
 rm, ri, rd, rmdir, del, erase (PowerShell).
 
-The command is split at unquoted ; & && | || and newlines, and each delete
-segment is judged on its own targets (tracking `cd` between segments).
+The command is split at unquoted ; & && | || newlines, ( ) and block braces,
+and each delete segment is judged on its own targets (tracking `cd` between
+segments; a `( ... )` group restores the directory afterwards).
 
 - Every target resolves strictly inside the project or a temp dir
   ($TMPDIR/$TEMP/$TMP, system temp, Claude scratchpad)          -> allow
-- Any target outside, unresolvable variable, subshell, command
-  substitution, piped/xargs/find-fed delete, no explicit target,
-  or anything unparseable                                        -> ask
+- Any target outside, unresolvable variable (incl. loop variables),
+  delete inside $(...)/backticks, target built from a substitution,
+  piped/xargs/find-fed delete, no explicit target, or anything
+  unparseable                                                    -> ask
 - No delete command at all                                       -> no opinion
+
+Parentheses and command substitutions elsewhere (method calls, foreach,
+"$($x.Name)" in PowerShell strings) are fine.
 """
 
 import json
@@ -30,6 +35,8 @@ PS_PATH_FLAG = re.compile(r"^-(?:path|literalpath|pspath|lp):(.+)$", re.IGNORECA
 REDIRECT = re.compile(r"^\d*(?:>>?|<|&>)")
 CD_CMDS = {"cd", "chdir", "pushd", "set-location", "sl"}
 WRAPPERS = {"sudo", "command", "env", "nohup", "time", "exec"}
+# Bash keywords that may precede a command in the same segment.
+KEYWORDS = {"do", "then", "else", "if", "elif", "while", "until", "!"}
 DELETE_CMDS = {"rm", "rmdir", "unlink", "remove-item", "ri", "rd", "del", "erase"}
 DELETE_WORD = re.compile(
     r"\b(?:" + "|".join(sorted(DELETE_CMDS, key=len, reverse=True)) + r")\b",
@@ -39,6 +46,15 @@ DELETE_WORD = re.compile(
 # `allow` for a command containing them, so those rules still apply.
 SENSITIVE = re.compile(r"^git\s+reset\s+--hard\b", re.IGNORECASE)
 TEMP_VARS = ("TMPDIR", "TEMP", "TMP")
+# PowerShell parameters whose value is not a path (value is skipped).
+PS_VALUE_PARAMS = {
+    "erroraction", "ea", "warningaction", "wa", "informationaction", "infa",
+    "errorvariable", "ev", "warningvariable", "wv", "informationvariable", "iv",
+    "outvariable", "ov", "outbuffer", "ob", "pipelinevariable", "pv",
+    "include", "exclude", "filter", "stream", "credential",
+}  # fmt: skip
+OPEN, CLOSE = "\0(", "\0)"  # scope markers emitted by split_segments
+PAREN_ARG = "\0arg"  # token: this command's arguments continue inside ( )
 
 
 class Ask(Exception):
@@ -114,6 +130,8 @@ def record_assignment(toks, shell, v):
     Returns True if the segment was a pure assignment.
     """
     def value(raw):
+        if "\0" in raw:
+            return None  # value computed in ( ): unknown
         try:
             return expand(raw.strip("\"'"), shell, v)
         except Ask:
@@ -193,10 +211,45 @@ def blank_quotes(cmd, quotes, shell):
     return "".join(out)
 
 
-def split_segments(cmd):
-    """Split at unquoted ; & | and newlines (keeping 2>&1 / &> intact)."""
+def substitution_bodies(live, shell):
+    """Contents of $( ... ) (balanced) and, in Bash, `...` regions."""
+    bodies, i = [], live.find("$(")
+    while i != -1:
+        depth, j = 0, i + 1
+        while j < len(live):
+            if live[j] == "(":
+                depth += 1
+            elif live[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        bodies.append(live[i + 2 : j])
+        i = live.find("$(", i + 2)
+    if shell != "PowerShell":
+        bodies += live.split("`")[1::2]
+    return bodies
+
+
+def split_segments(cmd, shell):
+    """Split at unquoted ; & | newlines, ( ) and block braces.
+
+    Keeps 2>&1 / &> intact. Emits OPEN/CLOSE markers for ( ) so the caller
+    can restore the directory after a subshell. Bash braces only split when
+    they are command-grouping tokens (`{ ` / ` }`), not ${VAR} or a{b,c}.
+    """
     segs, cur, quote = [], [], None
+    ps = shell == "PowerShell"
+
+    def flush(marker=None):
+        segs.append("".join(cur))
+        cur.clear()
+        if marker:
+            segs.append(marker)
+
     for i, ch in enumerate(cmd):
+        prev = cmd[i - 1] if i else ""
+        nxt = cmd[i + 1] if i + 1 < len(cmd) else ""
         if quote:
             cur.append(ch)
             if ch == quote:
@@ -206,20 +259,26 @@ def split_segments(cmd):
             quote = ch
             cur.append(ch)
             continue
-        if ch == "&":
-            prev = cmd[i - 1] if i else ""
-            nxt = cmd[i + 1] if i + 1 < len(cmd) else ""
-            if prev in "<>" or nxt == ">":
-                cur.append(ch)
-                continue
-        if ch in ";&|\n":
-            segs.append("".join(cur))
-            cur = []
+        if ch == "&" and (prev in "<>" or nxt == ">"):
+            cur.append(ch)
             continue
-        cur.append(ch)
+        if ch in ";&|\n":
+            flush()
+        elif ch == "(":
+            if "".join(cur).strip():
+                cur.append(" " + PAREN_ARG)  # args continue inside ( )
+            flush(OPEN)
+        elif ch == ")":
+            flush(CLOSE)
+        elif ch == "{" and prev != "$" and (ps or nxt in " \t\n"):
+            flush()
+        elif ch == "}" and (ps or prev in " \t\n;"):
+            flush()
+        else:
+            cur.append(ch)
     if quote:
         raise Ask("unbalanced quotes")
-    segs.append("".join(cur))
+    flush()
     return [s.strip() for s in segs if s.strip()]
 
 
@@ -255,8 +314,11 @@ def rm_targets(toks, shell):
         if lowered[0] in {"xargs", "find"} and DELETE_CMDS.intersection(lowered):
             raise Ask(f"delete fed by {lowered[0]}")
         return None
-    targets, opts_done = [], False
+    targets, opts_done, skip = [], False, False
     for t in toks[1:]:
+        if skip:
+            skip = False
+            continue
         if not opts_done and t == "--":
             opts_done = True
             continue
@@ -264,6 +326,8 @@ def rm_targets(toks, shell):
             m = PS_PATH_FLAG.match(t)
             if m:
                 targets.append(m.group(1))
+            elif shell == "PowerShell" and t[1:].lower() in PS_VALUE_PARAMS:
+                skip = True  # e.g. -ErrorAction SilentlyContinue
             continue
         targets.append(t)
     if shell == "PowerShell":
@@ -290,9 +354,7 @@ def main():
     cmd = strip_heredocs(data.get("tool_input", {}).get("command", ""))
     # `live`: single-quoted text removed (literal in Bash and PowerShell);
     # double-quoted text stays because $(...) still runs inside it.
-    # `bare`: all quoted text removed, for parens that only matter unquoted.
     live = blank_quotes(cmd, "'", shell)
-    bare = blank_quotes(cmd, "'\"", shell)
     if not DELETE_WORD.search(live):
         sys.exit(0)
 
@@ -301,16 +363,33 @@ def main():
     roots = safe_roots(project)
 
     try:
-        backtick_subst = shell != "PowerShell" and "`" in live
-        if backtick_subst or "$(" in live or re.search(r"[()]", bare):
-            raise Ask("subshell or command substitution")
-        segs = split_segments(cmd)
+        # A delete hidden inside $(...) / backticks (even within a quoted
+        # argument of another command) is not a segment of its own.
+        if any(DELETE_WORD.search(b) for b in substitution_bodies(live, shell)):
+            raise Ask("delete inside command substitution")
+        segs = split_segments(cmd, shell)
         saw_rm = sensitive = False
         assigned = {"env": {}, "ps": {}}
+        cwd_stack = []
         for seg in segs:
+            if seg == OPEN:
+                cwd_stack.append(cwd)
+                continue
+            if seg == CLOSE:
+                if cwd_stack and shell != "PowerShell":
+                    cwd = cwd_stack.pop()  # Bash ( ) is a subshell
+                elif cwd_stack:
+                    cwd_stack.pop()
+                continue
             if SENSITIVE.match(seg):
                 sensitive = True
             toks = tokenize(seg)
+            if shell != "PowerShell":
+                while toks and toks[0] in KEYWORDS:
+                    toks = toks[1:]
+                if len(toks) >= 2 and toks[0] in ("for", "select"):
+                    assigned["env"][toks[1]] = None  # loop var: unknown value
+                    continue
             if not toks:
                 continue
             if record_assignment(toks, shell, assigned):
@@ -321,6 +400,8 @@ def main():
                     cwd = None  # previous dir: unknown
                 elif not args:
                     cwd = resolve("~", "/")
+                elif "\0" in args[0]:
+                    cwd = None  # cd (Join-Path ...) / cd $(...)
                 else:
                     try:
                         target = expand(args[0], shell, assigned)
@@ -336,8 +417,13 @@ def main():
                 continue
             saw_rm = True
             for raw in targets:
-                if raw.endswith("\\") and shell != "PowerShell":
-                    raise Ask(f"ambiguous path {raw!r}")
+                if "\0" in raw:
+                    raise Ask(f"{toks[0]} target computed in parentheses")
+                if shell != "PowerShell":
+                    if raw.endswith("\\"):
+                        raise Ask(f"ambiguous path {raw!r}")
+                    if "`" in raw or re.search(r"(?<!\$)\{", raw):
+                        raise Ask(f"{raw}: substitution or brace expansion")
                 path = expand(raw, shell, assigned)
                 if cwd is None and not is_absolute(path):
                     raise Ask(f"{raw}: working directory unknown after cd")
