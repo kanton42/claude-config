@@ -249,6 +249,8 @@ def rm_targets(toks, shell):
     if not toks:
         return None
     lowered = [t.lower() for t in toks]
+    # /usr/bin/rm, rm.exe, \rm (alias bypass) -> rm
+    lowered[0] = re.sub(r"\.exe$", "", re.split(r"[\\/]", lowered[0])[-1])
     if lowered[0] not in DELETE_CMDS:
         if lowered[0] in {"xargs", "find"} and DELETE_CMDS.intersection(lowered):
             raise Ask(f"delete fed by {lowered[0]}")
