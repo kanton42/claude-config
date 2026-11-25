@@ -103,6 +103,6 @@
     }
   },
   "askUserQuestionTimeout": "10m",
-  "agentPushNotifEnabled": true,
-  "inputNeededNotifEnabled": true
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true
 }

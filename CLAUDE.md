@@ -1,9 +1,4 @@
-# Standing instructions (CLAUDE.md template)
-
-> A generic, reusable `CLAUDE.md` skeleton for Claude Code. Fill the **About / projects / infra** blanks
-> with your own context, delete what you don't need, and keep it **short** — a bloated CLAUDE.md gets
-> ignored (Anthropic's own guidance). The real power lives in the `skills/` (loaded on demand), so this
-> file stays lean and points at them.
+# Standing instructions
 
 ## About me / my projects
 - Data-Scientist with statistics, physics, and machine-learning background; working in logistics, optimization, simulating, forecasting, modeling, strategic solutions
@@ -21,7 +16,6 @@
 - Don't rely on `conda activate`. Use `conda run -n <env> python ...` / `conda run -n <env> pytest`.
 - Installing packages: default to `conda install -n <env> -c conda-forge ...`; fall back to
   `conda run -n <env> python -m pip install ...` only if the package isn't on conda-forge.
-  <!-- Print a warning about the VPN if an unexpected conda install error occurrs instead of switching to pip directly. -->
   Never install into `base`. Update `environment.yml` (conda deps, or under `pip:`) when adding dependencies.
 - Remote: Azure ML (SDK v2, `azure-ai-ml`). Compute is Linux, so job scripts and YAML use Linux conventions.
   Job environments for projects intended to use on Azure are supposed to be defined in an appropriate <path/to/azureml/env.yml>, which should be usable on Azure ML.
@@ -71,8 +65,7 @@ Load the **`working-with-claude`** skill for the full playbook; the always-on ru
 - Before marking a task complete: confirm tests pass AND the live surface reflects the change.
 
 ## Design (load before any web/UI work)
-- Before building/restyling any web UI, load the **`design-system`** skill first — it routes to the matching
-  per-type design skill and supplies tokens, fonts, a11y, components, motion, and a premium-feel checklist.
+- Before building/restyling any web UI, load the **`design-system`** skill first — it routes to the matching per-type design skill and supplies tokens, fonts, a11y, components, motion, and a premium-feel checklist.
 
 ## Safety
 - Never paste secret values in chat (the `secret-scan` hook warns if you do). Use env files.
